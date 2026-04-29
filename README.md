@@ -1,0 +1,2 @@
+# fred-mcp
+fred-mcp
