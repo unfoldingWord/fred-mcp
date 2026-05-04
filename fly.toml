@@ -1,0 +1,29 @@
+app = "fred-mcp"
+primary_region = "iad"  # confirm closest region to Fred MariaDB before fly deploy
+
+[build]
+  dockerfile = "Dockerfile"
+
+[http_service]
+  internal_port = 8080
+  force_https = true
+  auto_stop_machines = "stop"
+  auto_start_machines = true
+  min_machines_running = 1
+
+[[vm]]
+  cpu_kind = "shared"
+  cpus = 1
+  memory_mb = 1024
+
+# Secrets are NOT defined here — set them with `fly secrets set`:
+#   MYSQL_HOST, MYSQL_PORT, MYSQL_DATABASE, MYSQL_USER, MYSQL_PASSWORD,
+#   FRED_MCP_TOKEN
+
+[[http_service.checks]]
+  grace_period = "10s"
+  interval = "30s"
+  method = "get"
+  path = "/healthz"
+  protocol = "http"
+  timeout = "5s"

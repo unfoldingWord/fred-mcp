@@ -1,0 +1,422 @@
+# fred-mcp tools.yaml
+#
+# Multi-document form (--- separated kind: source / kind: tool / kind: toolset
+# / kind: prompt blocks), matching the prebuilt mcp-toolbox configs at
+# https://github.com/googleapis/genai-toolbox/tree/main/internal/prebuiltconfigs/tools
+#
+# All credentials come from env vars set as Fly secrets.
+# See README.md and docs/issues/001-toolbox-mcp-bootstrap.md for details.
+
+---
+
+kind: source
+name: fred
+type: mysql
+host: ${MYSQL_HOST}
+port: ${MYSQL_PORT:3306}
+database: ${MYSQL_DATABASE}
+user: ${MYSQL_USER}
+password: ${MYSQL_PASSWORD}
+queryTimeout: 30s
+
+# ──────────────────────────────────────────────────────────────────────
+# Built-in introspection + escape hatch
+# ──────────────────────────────────────────────────────────────────────
+
+---
+
+kind: tool
+name: execute_sql
+type: mysql-execute-sql
+source: fred
+description: |
+  Execute a single read-only SQL statement against the Fred MariaDB
+  database and return the rows as JSON. Use this when the curated
+  tools below do not cover the question being asked.
+
+  Important conventions for Fred (also see the `fred_query_rules`
+  MCP prompt for the full ruleset):
+  - The DB user is read-only. Only SELECT statements will succeed.
+  - Strategic languages: `resource_level >= 1`.
+  - Use `iso_639_2` to join `language_engagements` to
+    `joshua_project_data` or `pb_language_data`.
+  - For all-languages-in-a-country, query `pb_language_data`.
+  - For languages where unfoldingWord is engaged, query
+    `language_engagements` (or the denormalized
+    `master_uw_language_engagements`).
+  - Use `LIKE` for language name searches; names are formatted as
+    `language [code]` in `pb_language_data.languagename`.
+
+---
+
+kind: tool
+name: list_tables
+type: mysql-list-tables
+source: fred
+description: |
+  List all user tables in the Fred database with their columns,
+  constraints, indexes, and triggers as JSON. Use to discover the
+  schema before writing SQL.
+
+---
+
+kind: tool
+name: get_query_plan
+type: mysql-get-query-plan
+source: fred
+description: |
+  Run EXPLAIN against a SQL statement and return the query plan as
+  JSON. Use to validate that an `execute_sql` query will be efficient
+  before running it on a large table.
+
+# ──────────────────────────────────────────────────────────────────────
+# Curated domain tools
+# ──────────────────────────────────────────────────────────────────────
+
+---
+
+kind: tool
+name: find_language_engagements
+type: mysql-sql
+source: fred
+description: |
+  Find unfoldingWord language engagements matching a language and/or
+  country. Returns engagement details joined with organization name,
+  language name, and country name.
+
+  A "language engagement" is the intersection of a language, a
+  country, and a partner translation organization where unfoldingWord
+  has work in progress. If the user asks about ALL languages in a
+  country (not just ones uW is working on), do NOT use this tool —
+  use `country_language_overview` instead.
+
+  Both parameters accept NULL to widen the search; at least one must
+  be provided.
+statement: |
+  SELECT
+    le.language_engagement_id,
+    ilc.subtag_new            AS ietf_subtag,
+    ilc.primary_anglicized_name AS language_name,
+    ilc.iso_639_2,
+    c.alpha_3_code            AS country_code,
+    c.english_short_name      AS country_name,
+    o.name                    AS organization_name,
+    o.org_type,
+    le.sensitivity,
+    le.population,
+    le.partner_goal,
+    le.language_cluster
+  FROM language_engagements le
+  JOIN ietf_languages_codes ilc ON ilc.ietf_id = le.ietf_id
+  JOIN countries c              ON c.alpha_3_code = le.country_id
+  JOIN organizations o          ON o.org_id = le.translation_organization_id
+  WHERE (? IS NULL OR ilc.subtag_new LIKE CONCAT('%', ?, '%')
+                   OR ilc.primary_anglicized_name LIKE CONCAT('%', ?, '%'))
+    AND (? IS NULL OR c.alpha_3_code = ? OR c.english_short_name LIKE CONCAT('%', ?, '%'))
+  ORDER BY ilc.primary_anglicized_name, c.english_short_name
+  LIMIT 200;
+parameters:
+  - name: language_query
+    type: string
+    description: |
+      Language identifier — IETF subtag (e.g., "hi", "swh") or a
+      fragment of the anglicized language name (e.g., "Hindi").
+      Pass null to match any language.
+  - name: country_query
+    type: string
+    description: |
+      Country identifier — ISO alpha-3 code (e.g., "IND", "USA")
+      or a fragment of the English country name (e.g., "India").
+      Pass null to match any country.
+
+---
+
+kind: tool
+name: list_translation_products_for_engagement
+type: mysql-sql
+source: fred
+description: |
+  List all translation products (scripture portions, NT, full Bible,
+  etc.) for a given language engagement, with status and dates.
+  Use after `find_language_engagements` returns a
+  `language_engagement_id` the user wants to drill into.
+
+  In `uw_translation_products`:
+  - `resource_package` = type of product translated.
+  - `scriptural_association` = the actual biblical book (USE THIS,
+    not `scripture_text_name`).
+  - `product_status` is one of: "Not Scheduled", "Inactive",
+    "In Progress", "Completed".
+statement: |
+  SELECT
+    id,
+    resource_package,
+    scriptural_association,
+    scripture_text_name,
+    translation_type,
+    resource_format,
+    product_status,
+    start_date,
+    published_date,
+    completed_date
+  FROM uw_translation_products
+  WHERE language_engagement_id = ?
+  ORDER BY published_date DESC, start_date DESC;
+parameters:
+  - name: language_engagement_id
+    type: integer
+    description: The language_engagement_id (from find_language_engagements).
+
+---
+
+kind: tool
+name: search_organizations
+type: mysql-sql
+source: fred
+description: |
+  Search unfoldingWord partner organizations by a name fragment.
+  Returns org metadata including type, sensitivity, and Progress
+  Bible org id linkage.
+statement: |
+  SELECT
+    org_id,
+    name,
+    org_type,
+    sensitivity,
+    data_usage_permission,
+    cbbt_spectrum,
+    org_status,
+    pb_org_id
+  FROM organizations
+  WHERE name LIKE CONCAT('%', ?, '%')
+    AND COALESCE(marked_delete, 0) = 0
+  ORDER BY name
+  LIMIT 50;
+parameters:
+  - name: name_fragment
+    type: string
+    description: A substring of the organization's name (case-insensitive).
+
+---
+
+kind: tool
+name: country_language_overview
+type: mysql-sql
+source: fred
+description: |
+  Return all languages spoken in a country (Progress Bible's view,
+  not just languages unfoldingWord is engaged with) with translation
+  status, AAG goal, and chapter progress.
+
+  Use this when the user asks about ALL languages in a country,
+  population coverage, or All Access Goal status. Do NOT use this for
+  questions specifically about unfoldingWord engagements — use
+  `find_language_engagements` for those.
+statement: |
+  SELECT
+    languagename,
+    languagecode,
+    country,
+    countrycode,
+    firstlanguageusers,
+    completedscripture,
+    latestpublicationyear,
+    activetranslation,
+    allaccessstatus,
+    allaccessgoal,
+    allaccessgoalmet,
+    chaptergoal,
+    chapterscompleted,
+    chapterstogoal,
+    onthelist
+  FROM pb_language_data
+  WHERE countrycode = ? OR country LIKE CONCAT('%', ?, '%')
+  ORDER BY firstlanguageusers DESC
+  LIMIT 500;
+parameters:
+  - name: country_code
+    type: string
+    description: ISO alpha-2 country code (e.g., "IN", "US"), or null.
+  - name: country_name_fragment
+    type: string
+    description: Substring of the country name (e.g., "India"), or null.
+
+---
+
+kind: tool
+name: engagement_metadata_notes
+type: mysql-sql
+source: fred
+description: |
+  Return all free-text notes / communication log entries attached to
+  a language engagement, most recent first. Useful for answering
+  questions about engagement history, status changes, and decisions.
+statement: |
+  SELECT
+    metadata_id,
+    communication_date,
+    created_by,
+    note
+  FROM language_engagement_metadata
+  WHERE language_engagement_id = ?
+  ORDER BY communication_date DESC, metadata_id DESC
+  LIMIT 200;
+parameters:
+  - name: language_engagement_id
+    type: integer
+    description: The language_engagement_id to fetch notes for.
+
+---
+
+kind: tool
+name: recent_training_events
+type: mysql-sql
+source: fred
+description: |
+  List recent unfoldingWord training events, optionally filtered by
+  country. Includes participant counts and the generated
+  `training_man_hours` column (= event_hours × total_facilitators).
+statement: |
+  SELECT
+    te.training_event_id,
+    te.event_name,
+    te.start_date,
+    te.trip_duration_days,
+    te.training_event_hours,
+    te.training_man_hours,
+    te.training_category,
+    te.zoom_in_person,
+    c.english_short_name AS country_name,
+    c.alpha_3_code       AS country_code,
+    o.name               AS organization_name,
+    te.participants_present,
+    te.translator_participants_present,
+    te.trainer_participants_present
+  FROM training_events te
+  LEFT JOIN countries     c ON c.alpha_3_code = te.country_id
+  LEFT JOIN organizations o ON o.org_id      = te.org_id
+  WHERE (? IS NULL OR te.country_id = ? OR c.english_short_name LIKE CONCAT('%', ?, '%'))
+    AND te.start_date >= COALESCE(?, DATE_SUB(CURDATE(), INTERVAL 1 YEAR))
+  ORDER BY te.start_date DESC
+  LIMIT 200;
+parameters:
+  - name: country_query
+    type: string
+    description: |
+      Country alpha-3 code (e.g., "IND") or country name fragment
+      (e.g., "India"). Pass null to include all countries.
+  - name: since_date
+    type: string
+    description: |
+      ISO date (YYYY-MM-DD). Only return events on or after this
+      date. Pass null to default to the last 12 months.
+
+# ──────────────────────────────────────────────────────────────────────
+# Toolset
+# ──────────────────────────────────────────────────────────────────────
+
+---
+
+kind: toolset
+name: fred
+tools:
+  - execute_sql
+  - list_tables
+  - get_query_plan
+  - find_language_engagements
+  - list_translation_products_for_engagement
+  - search_organizations
+  - country_language_overview
+  - engagement_metadata_notes
+  - recent_training_events
+
+# ──────────────────────────────────────────────────────────────────────
+# Prompt
+# ──────────────────────────────────────────────────────────────────────
+
+---
+
+kind: prompt
+name: fred_query_rules
+description: |
+  The unfoldingWord domain conventions and field-level rules for
+  querying the Fred database correctly. Pull this prompt before
+  writing SQL via execute_sql or interpreting results from the
+  curated tools.
+messages:
+  - role: user
+    content: |
+      You are answering questions about unfoldingWord's translation
+      tracking data ("Fred"). Follow these rules strictly.
+
+      # Strategic Language
+      A language is Strategic iff `resource_level >= 1`.
+
+      # All Access Goals (AAG)
+      - allaccessgoal ∈ {"Two Bibles", "Bible", "NT / 260 Chapters",
+        "25 Chapters"}
+      - allaccessgoalmet ∈ {"Yes", "No", "Not Shown",
+        "Not on All Access Goals List"}
+      - allaccessstatus is the canonical AAG status field. Values:
+        "Goal Met in the language",
+        "Not on All Access Goals List",
+        "Translation in Progress",
+        "Translation Not Started",
+        "Goal Met - Scripture accessed via second language",
+        "Not Shown".
+      - `onthelist` indicates ETEN funding eligibility.
+
+      # Joins
+      - Joining `language_engagements` to `joshua_project_data` or
+        `pb_language_data`: ALWAYS join on `iso_639_2`. Never use
+        other language code fields.
+      - For `joshua_project_data` → AAG via `pb_language_data`:
+        join `joshua_project_data.rol3` to `pb_language_data.languagecode`.
+      - For `joshua_project_data` → engagements: join
+        `joshua_project_data.rol3` to `language_engagements`'s
+        `iso_639_2` (via `ietf_languages_codes`).
+
+      # Status fields
+      - project_status ∈ {"Completed", "Active", "Inactive"}.
+      - product_status ∈ {"Not Scheduled", "Inactive", "In Progress",
+        "Completed"}.
+
+      # Language engagements vs Progress Bible
+      - "All languages in a country" → query `pb_language_data`.
+      - "Languages where unfoldingWord is engaged" → query
+        `language_engagements` (or `master_uw_language_engagements`).
+
+      # Translation products
+      - `resource_package` = type of product translated.
+      - `scriptural_association` = the actual biblical book.
+        NEVER use `scripture_text_name` for the book — use
+        `scriptural_association`.
+
+      # Time-based queries
+      Several tables use MariaDB system versioning. For
+      rate-of-change or point-in-time queries, use `FOR SYSTEM_TIME`:
+
+          SELECT *,
+            CONVERT_TZ(row_start, 'UTC', 'America/New_York') AS row_start_local,
+            CONVERT_TZ(row_end,   'UTC', 'America/New_York') AS row_end_local
+          FROM pb_language_data
+          FOR SYSTEM_TIME FROM '2025-05-01 00:00:00' TO NOW()
+          ORDER BY row_start_local DESC;
+
+      # Unreached People Groups (UPGs)
+      - UPG = people group with `jpscale <= 1`.
+      - Least Reached People Group = `jpscale <= 3`.
+      - Always use `joshua_project_data` for UPG and population
+        questions.
+      - Do NOT filter on `leastreached`; ALWAYS use `jpscale`.
+      - "How many UPGs?" means COUNT DISTINCT people groups, not
+        languages — use `peopleid3rog3` for the people-group id.
+      - Use `pb_language_data.country` for geography unless JP
+        geography is explicitly requested.
+      - `jpscale` ∈ [0, 5]. `frontier` ∈ {"Y", "N"}.
+
+      # Name searches
+      When searching language names, use `LIKE`. The
+      `pb_language_data.languagename` column has format
+      `language [code]`. Same convention applies to
+      `pb_all_translation_projects.Language_Name`.
