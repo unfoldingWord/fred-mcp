@@ -1,6 +1,33 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# Required env vars. The container fails-fast if any are unset/empty
+# rather than letting Caddy proxy with an empty-string matcher (which
+# would silently match `Authorization: Bearer ` requests).
+#
+# Keep this list in sync with the @matcher blocks in Caddyfile —
+# every FRED_MCP_TOKEN_* env var referenced there must be listed here.
+REQUIRED_VARS=(
+    FRED_MCP_TOKEN
+    FRED_MCP_TOKEN_FRED_ZULIP_BOT_WORKER
+    MYSQL_HOST
+    MYSQL_DATABASE
+    MYSQL_USER
+    MYSQL_PASSWORD
+)
+
+missing=()
+for v in "${REQUIRED_VARS[@]}"; do
+    if [[ -z "${!v:-}" ]]; then
+        missing+=("$v")
+    fi
+done
+if (( ${#missing[@]} > 0 )); then
+    echo "fred-mcp: missing required env vars: ${missing[*]}" >&2
+    echo "fred-mcp: refusing to start (see ADR 0002 for context)" >&2
+    exit 1
+fi
+
 # Toolbox bound to localhost only — Caddy is the public face.
 # log-level DEBUG = highest verbosity supported by toolbox (no TRACE).
 /usr/local/bin/toolbox \
