@@ -2,9 +2,12 @@
     # Disable Caddy's admin API (we don't need it; reduces attack surface).
     admin off
     # Log to stdout so Fly captures it.
+    # level DEBUG = highest verbosity practical (PANIC/FATAL exist but
+    # are reserved for fatal-only).
     log {
         output stdout
         format console
+        level DEBUG
     }
 }
 

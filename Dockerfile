@@ -12,7 +12,7 @@ FROM us-central1-docker.pkg.dev/database-toolbox/toolbox/toolbox:${TOOLBOX_VERSI
 # provide a musl→glibc translation layer that's enough for toolbox.
 FROM caddy:2
 
-RUN apk add --no-cache gcompat libc6-compat
+RUN apk add --no-cache gcompat libc6-compat bash
 
 COPY --from=toolbox /toolbox /usr/local/bin/toolbox
 COPY tools.yaml      /app/tools.yaml

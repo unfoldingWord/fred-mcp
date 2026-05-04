@@ -93,6 +93,7 @@ description: |
   Both parameters accept NULL to widen the search; at least one must
   be provided.
 statement: |
+  WITH p AS (SELECT ? AS lang_q, ? AS country_q)
   SELECT
     le.language_engagement_id,
     ilc.subtag_new            AS ietf_subtag,
@@ -110,20 +111,26 @@ statement: |
   JOIN ietf_languages_codes ilc ON ilc.ietf_id = le.ietf_id
   JOIN countries c              ON c.alpha_3_code = le.country_id
   JOIN organizations o          ON o.org_id = le.translation_organization_id
-  WHERE (? IS NULL OR ilc.subtag_new LIKE CONCAT('%', ?, '%')
-                   OR ilc.primary_anglicized_name LIKE CONCAT('%', ?, '%'))
-    AND (? IS NULL OR c.alpha_3_code = ? OR c.english_short_name LIKE CONCAT('%', ?, '%'))
+  CROSS JOIN p
+  WHERE (p.lang_q IS NULL
+         OR ilc.subtag_new LIKE CONCAT('%', p.lang_q, '%')
+         OR ilc.primary_anglicized_name LIKE CONCAT('%', p.lang_q, '%'))
+    AND (p.country_q IS NULL
+         OR c.alpha_3_code = p.country_q
+         OR c.english_short_name LIKE CONCAT('%', p.country_q, '%'))
   ORDER BY ilc.primary_anglicized_name, c.english_short_name
   LIMIT 200;
 parameters:
   - name: language_query
     type: string
+    required: false
     description: |
       Language identifier — IETF subtag (e.g., "hi", "swh") or a
       fragment of the anglicized language name (e.g., "Hindi").
       Pass null to match any language.
   - name: country_query
     type: string
+    required: false
     description: |
       Country identifier — ISO alpha-3 code (e.g., "IND", "USA")
       or a fragment of the English country name (e.g., "India").
@@ -236,9 +243,11 @@ statement: |
 parameters:
   - name: country_code
     type: string
+    required: false
     description: ISO alpha-2 country code (e.g., "IN", "US"), or null.
   - name: country_name_fragment
     type: string
+    required: false
     description: Substring of the country name (e.g., "India"), or null.
 
 ---
@@ -277,6 +286,7 @@ description: |
   country. Includes participant counts and the generated
   `training_man_hours` column (= event_hours × total_facilitators).
 statement: |
+  WITH p AS (SELECT ? AS country_q, ? AS since_d)
   SELECT
     te.training_event_id,
     te.event_name,
@@ -294,19 +304,24 @@ statement: |
     te.trainer_participants_present
   FROM training_events te
   LEFT JOIN countries     c ON c.alpha_3_code = te.country_id
-  LEFT JOIN organizations o ON o.org_id      = te.org_id
-  WHERE (? IS NULL OR te.country_id = ? OR c.english_short_name LIKE CONCAT('%', ?, '%'))
-    AND te.start_date >= COALESCE(?, DATE_SUB(CURDATE(), INTERVAL 1 YEAR))
+  LEFT JOIN organizations o ON o.org_id       = te.org_id
+  CROSS JOIN p
+  WHERE (p.country_q IS NULL
+         OR te.country_id = p.country_q
+         OR c.english_short_name LIKE CONCAT('%', p.country_q, '%'))
+    AND te.start_date >= COALESCE(p.since_d, DATE_SUB(CURDATE(), INTERVAL 1 YEAR))
   ORDER BY te.start_date DESC
   LIMIT 200;
 parameters:
   - name: country_query
     type: string
+    required: false
     description: |
       Country alpha-3 code (e.g., "IND") or country name fragment
       (e.g., "India"). Pass null to include all countries.
   - name: since_date
     type: string
+    required: false
     description: |
       ISO date (YYYY-MM-DD). Only return events on or after this
       date. Pass null to default to the last 12 months.
