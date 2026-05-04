@@ -1,0 +1,7 @@
+.DS_Store
+.envrc
+.env
+.env.*
+*.log
+node_modules/
+.claude/
