@@ -1,0 +1,31 @@
+{
+    # Disable Caddy's admin API (we don't need it; reduces attack surface).
+    admin off
+    # Log to stdout so Fly captures it.
+    # level DEBUG = highest verbosity practical (PANIC/FATAL exist but
+    # are reserved for fatal-only).
+    log {
+        output stdout
+        format console
+        level DEBUG
+    }
+}
+
+:8080 {
+    # Health check passthrough — no auth required, returns 200.
+    # Useful for Fly health checks and external uptime monitoring.
+    handle /healthz {
+        respond "ok" 200
+    }
+
+    # Everything else requires the bearer token.
+    @authorized header Authorization "Bearer {env.FRED_MCP_TOKEN}"
+    handle @authorized {
+        reverse_proxy 127.0.0.1:5000
+    }
+
+    # Default: 401 with no body, no hint about what's behind us.
+    handle {
+        respond 401
+    }
+}
