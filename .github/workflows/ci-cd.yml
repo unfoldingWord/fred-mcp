@@ -1,0 +1,96 @@
+name: CI/CD
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: ci-cd-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  validate:
+    name: Build + smoke-start
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Build image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          load: true
+          tags: fred-mcp:ci
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Smoke-start container
+        run: |
+          set -euo pipefail
+          docker run --rm -d --name fred-mcp-ci \
+            -p 8080:8080 \
+            -e MYSQL_HOST=stub \
+            -e MYSQL_PORT=3306 \
+            -e MYSQL_DATABASE=stub \
+            -e MYSQL_USER=stub \
+            -e MYSQL_PASSWORD=stub \
+            -e FRED_MCP_TOKEN=ci-test-token \
+            fred-mcp:ci
+
+          # Toolbox parses tools.yaml at startup and logs "Server ready to
+          # serve!" once it's bound to its socket. If we don't see that
+          # within 30s, something in tools.yaml or the entrypoint is broken.
+          ready=0
+          for i in $(seq 1 30); do
+            if docker logs fred-mcp-ci 2>&1 | grep -q "Server ready to serve"; then
+              ready=1
+              break
+            fi
+            sleep 1
+          done
+
+          echo "::group::Container logs"
+          docker logs fred-mcp-ci 2>&1 || true
+          echo "::endgroup::"
+
+          if [ "$ready" -ne 1 ]; then
+            echo "::error::Toolbox did not report 'Server ready to serve' within 30s"
+            docker stop fred-mcp-ci || true
+            exit 1
+          fi
+
+          # Auth gate: /healthz open, /mcp without bearer rejected.
+          curl -fsS http://localhost:8080/healthz | grep -q '^ok$'
+          code=$(curl -s -o /dev/null -w '%{http_code}' http://localhost:8080/mcp)
+          if [ "$code" != "401" ]; then
+            echo "::error::/mcp without bearer returned $code, expected 401"
+            docker stop fred-mcp-ci || true
+            exit 1
+          fi
+
+          docker stop fred-mcp-ci
+
+  deploy:
+    name: Deploy to Fly
+    needs: validate
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    concurrency:
+      group: deploy-fly
+      cancel-in-progress: false
+    environment:
+      name: production
+      url: https://fred-mcp.fly.dev
+    steps:
+      - uses: actions/checkout@v4
+      - uses: superfly/flyctl-actions/setup-flyctl@master
+      - run: flyctl deploy --remote-only
+        env:
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
