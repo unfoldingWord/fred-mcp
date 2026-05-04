@@ -16,6 +16,25 @@ jobs:
     name: Build + smoke-start
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    services:
+      # Toolbox connects to MySQL eagerly at startup — stubbed env vars are
+      # not enough; we need a real reachable DB. An empty MariaDB suffices:
+      # we only check that toolbox initializes and reports "Server ready",
+      # not that any specific tables exist.
+      mariadb:
+        image: mariadb:11
+        env:
+          MARIADB_ROOT_PASSWORD: ci-root
+          MARIADB_DATABASE: ci_test
+          MARIADB_USER: ci_user
+          MARIADB_PASSWORD: ci-password
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="healthcheck.sh --connect --innodb_initialized"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=10
     steps:
       - uses: actions/checkout@v4
 
@@ -33,13 +52,15 @@ jobs:
       - name: Smoke-start container
         run: |
           set -euo pipefail
+          # --network host lets the container reach the MariaDB service on
+          # the runner's 127.0.0.1:3306. This also obviates -p 8080:8080.
           docker run --rm -d --name fred-mcp-ci \
-            -p 8080:8080 \
-            -e MYSQL_HOST=stub \
+            --network host \
+            -e MYSQL_HOST=127.0.0.1 \
             -e MYSQL_PORT=3306 \
-            -e MYSQL_DATABASE=stub \
-            -e MYSQL_USER=stub \
-            -e MYSQL_PASSWORD=stub \
+            -e MYSQL_DATABASE=ci_test \
+            -e MYSQL_USER=ci_user \
+            -e MYSQL_PASSWORD=ci-password \
             -e FRED_MCP_TOKEN=ci-test-token \
             fred-mcp:ci
 
