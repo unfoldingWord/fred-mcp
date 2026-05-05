@@ -66,11 +66,13 @@ Until that's done, use the legacy bearer token in `.mcp.json`:
 
 ```json
 {
-  "fred": {
-    "type": "http",
-    "url": "https://fred-mcp.fly.dev/mcp",
-    "headers": {
-      "Authorization": "Bearer ${FRED_MCP_TOKEN}"
+  "mcpServers": {
+    "fred": {
+      "type": "http",
+      "url": "https://fred-mcp.fly.dev/mcp",
+      "headers": {
+        "Authorization": "Bearer ${FRED_MCP_TOKEN}"
+      }
     }
   }
 }
