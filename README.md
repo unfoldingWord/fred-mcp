@@ -108,10 +108,23 @@ curl -i -H "Authorization: Bearer $TOKEN" https://fred-mcp.fly.dev/mcp # tool li
 
 ## Auth model
 
-v1 ships with a single shared bearer token (`FRED_MCP_TOKEN`) enforced
-by Caddy in front of the toolbox process. Every MCP request must carry
-`Authorization: Bearer <token>`. Token rotation = update the Fly secret
-+ update each consumer's MCP config.
+Caddy is the trust boundary. Two kinds of bearer are accepted (see
+[ADR 0002](./docs/decisions/0002-auth-v2-split-by-consumer-type.md)):
 
-Per-user OIDC (Google Workspace) is the planned successor — see
-[issue #2](https://github.com/unfoldingWord/fred-mcp/issues/2).
+- **Legacy shared `FRED_MCP_TOKEN`** — used by current human consumers
+  (Claude Desktop / Code / Cursor). Rotated by updating one Fly secret
+  and every consumer's MCP config. To be retired when OIDC for humans
+  lands (Auth v2.5, separate issue).
+- **Per-service named bearers `FRED_MCP_TOKEN_<SERVICE>`** — one Fly
+  secret per service consumer (e.g. `FRED_MCP_TOKEN_FRED_ZULIP_BOT_WORKER`).
+  Rotated independently per service. Logged with an `X-Service` header
+  for request attribution.
+
+Adding a new service consumer is a small repeatable change — see
+[`docs/runbooks/onboard-service-consumer.md`](./docs/runbooks/onboard-service-consumer.md).
+
+Why two flavors instead of OIDC for humans now: toolbox v1.1.0's
+generic auth provider can't validate Google's opaque access tokens
+(no RFC 7662 support on Google's side, no JWKS-validatable token in
+the OAuth flow). Real OIDC needs a tokeninfo sidecar or a
+self-hosted authorization server — tracked separately.
