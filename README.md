@@ -21,29 +21,29 @@ or 1Password.
 
 ### Claude Code
 
-Add the server to your project's `.mcp.json`:
+```bash
+claude mcp add --transport http fred https://fred-mcp.fly.dev/mcp
+```
+
+Claude Code automatically handles OAuth for HTTP servers: it discovers
+the PRM endpoint, detects the 401 challenge, opens a browser for
+Google consent, and stores the token with automatic refresh.
+
+If the automatic OAuth flow doesn't complete (e.g., Google rejects the
+dynamic client registration), fall back to the legacy bearer token
+during the transition period, or use a manually-obtained token:
 
 ```json
 {
-  "mcpServers": {
-    "fred": {
-      "type": "http",
-      "url": "https://fred-mcp.fly.dev/mcp",
-      "auth": {
-        "type": "oauth",
-        "client_id": "<OAUTH_CLIENT_ID>",
-        "client_secret": "<OAUTH_CLIENT_SECRET>",
-        "authorization_url": "https://accounts.google.com/o/oauth2/v2/auth",
-        "token_url": "https://oauth2.googleapis.com/token",
-        "scope": "openid email profile"
-      }
+  "fred": {
+    "type": "http",
+    "url": "https://fred-mcp.fly.dev/mcp",
+    "headers": {
+      "Authorization": "Bearer ${FRED_MCP_TOKEN}"
     }
   }
 }
 ```
-
-On first tool call, Claude Code opens a browser for the Google OAuth
-consent flow and caches the token locally.
 
 ### Claude Desktop
 

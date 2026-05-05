@@ -36,11 +36,21 @@ claude mcp remove fred  # if previously configured with bearer
 claude mcp add --transport http fred https://fred-mcp.fly.dev/mcp
 ```
 
-On first tool call, Claude Code will:
-1. Fetch `/.well-known/oauth-protected-resource`
-2. Discover Google as the authorization server
-3. Trigger the Google OAuth loopback flow
-4. Cache the access token
+On first tool call, Claude Code will attempt the automatic OAuth flow
+(PRM discovery → Google consent → token caching). If the automatic
+flow doesn't complete, configure with explicit headers in `.mcp.json`:
+
+```json
+{
+  "fred": {
+    "type": "http",
+    "url": "https://fred-mcp.fly.dev/mcp",
+    "headers": {
+      "Authorization": "Bearer ${FRED_MCP_TOKEN}"
+    }
+  }
+}
+```
 
 ### Claude Desktop
 
