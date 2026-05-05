@@ -48,7 +48,7 @@ Add a **Go sidecar** (`tokeninfo-sidecar`) that validates Google access tokens v
 
 ### Sidecar validation rules
 
-1. `aud` must match `OAUTH_CLIENT_ID` (our GCP OAuth client).
+1. `aud` must be in `OAUTH_CLIENT_IDS` (comma-separated allow-list of registered clients).
 2. `hd` must match `ALLOWED_HD` (default: `unfoldingword.org`).
 3. `email_verified` must be `"true"`.
 4. `expires_in` must be > 0.

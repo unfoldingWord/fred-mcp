@@ -94,7 +94,7 @@ MYSQL_USER=fred_mcp_ro
 MYSQL_PASSWORD=...
 FRED_MCP_TOKEN=local-dev-token
 FRED_MCP_TOKEN_FRED_ZULIP_BOT_WORKER=local-dev-worker-token
-OAUTH_CLIENT_ID=your-client-id.apps.googleusercontent.com
+OAUTH_CLIENT_IDS=your-client-id.apps.googleusercontent.com
 TOOLBOX_URL=http://localhost:8080
 ```
 
@@ -132,12 +132,12 @@ Pre-reqs (one-time, not in this repo):
      MYSQL_USER=fred_mcp_ro \
      MYSQL_PASSWORD=<from-DBA> \
      FRED_MCP_TOKEN="$(openssl rand -base64 48 | tr '+/' '-_' | tr -d '=')" \
-     OAUTH_CLIENT_ID=<from-gcp-console> \
+     OAUTH_CLIENT_IDS=<from-gcp-console> \
      TOOLBOX_URL=https://fred-mcp.fly.dev
    ```
 
    Save `FRED_MCP_TOKEN` to 1Password — you'll hand it out per consumer.
-   See [`docs/runbooks/step-0-gcp-oauth-setup.md`](./docs/runbooks/step-0-gcp-oauth-setup.md) for `OAUTH_CLIENT_ID` setup.
+   See [`docs/runbooks/step-0-gcp-oauth-setup.md`](./docs/runbooks/step-0-gcp-oauth-setup.md) for `OAUTH_CLIENT_IDS` setup.
 
 Then:
 

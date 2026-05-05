@@ -4,7 +4,7 @@ Transition human consumers from the shared `FRED_MCP_TOKEN` to Google OIDC authe
 
 ## Prerequisites
 
-- Step 0 (GCP OAuth setup) complete — `OAUTH_CLIENT_ID` and `TOOLBOX_URL` Fly secrets set.
+- Step 0 (GCP OAuth setup) complete — `OAUTH_CLIENT_IDS` and `TOOLBOX_URL` Fly secrets set.
 - Sidecar deployed and passing smoke tests (PRM endpoint returns valid JSON, unauthenticated requests return 401).
 
 ## Phase 1: Deploy with both auth paths active

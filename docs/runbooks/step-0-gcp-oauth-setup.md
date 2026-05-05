@@ -47,7 +47,7 @@ The Client Secret is needed by MCP clients that implement the full OAuth 2.1 flo
 ### 5. Set Fly secrets
 
 ```bash
-fly secrets set OAUTH_CLIENT_ID=<client-id> -a fred-mcp
+fly secrets set OAUTH_CLIENT_IDS=<client-id> -a fred-mcp
 fly secrets set TOOLBOX_URL=https://fred-mcp.fly.dev -a fred-mcp
 ```
 
