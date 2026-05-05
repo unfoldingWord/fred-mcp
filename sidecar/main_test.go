@@ -108,11 +108,11 @@ func TestVerify_WrongAud(t *testing.T) {
 	}
 }
 
-func TestVerify_AudSkippedWhenNoAllowList(t *testing.T) {
+func TestVerify_MultipleAllowedClientIDs(t *testing.T) {
 	setupSidecar(t, func(w http.ResponseWriter, r *http.Request) {
-		// Return a token with a different aud — should pass when allow-list is empty.
+		// Return a token with a second allowed client_id.
 		resp, _ := json.Marshal(map[string]string{
-			"aud":            "some-other-client.apps.googleusercontent.com",
+			"aud":            "claude-client-id.apps.googleusercontent.com",
 			"sub":            "1234567890",
 			"email":          "user@unfoldingword.org",
 			"email_verified": "true",
@@ -122,16 +122,19 @@ func TestVerify_AudSkippedWhenNoAllowList(t *testing.T) {
 		w.Write(resp)
 	})
 
-	// Clear the allow-list — audience validation should be skipped.
-	oauthClientIDs = map[string]bool{}
+	// Add a second client ID to the allow-list (e.g., Claude's client).
+	oauthClientIDs = map[string]bool{
+		"test-client-id.apps.googleusercontent.com":   true,
+		"claude-client-id.apps.googleusercontent.com": true,
+	}
 
 	req := httptest.NewRequest("GET", "/verify", nil)
-	req.Header.Set("Authorization", "Bearer ya29.any-client-token")
+	req.Header.Set("Authorization", "Bearer ya29.claude-token")
 	w := httptest.NewRecorder()
 	handleVerify(w, req)
 
 	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200 (aud skipped), got %d", w.Code)
+		t.Fatalf("expected 200 (aud in allow-list), got %d", w.Code)
 	}
 }
 

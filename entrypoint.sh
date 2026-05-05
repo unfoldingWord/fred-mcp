@@ -10,14 +10,13 @@ set -euo pipefail
 REQUIRED_VARS=(
     FRED_MCP_TOKEN
     FRED_MCP_TOKEN_FRED_ZULIP_BOT_WORKER
+    OAUTH_CLIENT_IDS
     TOOLBOX_URL
     MYSQL_HOST
     MYSQL_DATABASE
     MYSQL_USER
     MYSQL_PASSWORD
 )
-# OAUTH_CLIENT_IDS is optional — if set, audience validation is enforced.
-# If unset, the sidecar relies on email domain + Internal consent screen.
 
 missing=()
 for v in "${REQUIRED_VARS[@]}"; do

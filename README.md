@@ -14,17 +14,23 @@ for the why.
 ## Connecting as a human consumer (OIDC)
 
 Human consumers authenticate via Google Workspace OAuth. The server
-advertises its auth requirements via
-[Protected Resource Metadata](https://fred-mcp.fly.dev/.well-known/oauth-protected-resource).
+validates that tokens were issued specifically for fred-mcp (audience
+binding), so MCP clients must be configured with the server's OAuth
+client credentials. Get the client ID and secret from your team lead
+or 1Password.
 
 ### Claude Code
 
 ```bash
-claude mcp add --transport http fred https://fred-mcp.fly.dev/mcp
+claude mcp add --transport http \
+  --header "Authorization: Bearer $(gcloud auth print-access-token \
+    --client-id-file=<path-to-client-secret.json>)" \
+  fred https://fred-mcp.fly.dev/mcp
 ```
 
-On first tool call, Claude Code discovers the PRM document, initiates
-Google OAuth via a local loopback, and caches the token.
+Or configure in `.claude/settings.json` with explicit OAuth parameters.
+Claude Code will handle the Google OAuth loopback flow using the
+provided client credentials.
 
 ### Claude Desktop
 
@@ -34,14 +40,21 @@ Add to `~/Library/Application Support/Claude/claude_desktop_config.json`:
 {
   "mcpServers": {
     "fred": {
-      "url": "https://fred-mcp.fly.dev/mcp"
+      "url": "https://fred-mcp.fly.dev/mcp",
+      "auth": {
+        "type": "oauth",
+        "client_id": "<OAUTH_CLIENT_ID>",
+        "client_secret": "<OAUTH_CLIENT_SECRET>",
+        "authorization_url": "https://accounts.google.com/o/oauth2/v2/auth",
+        "token_url": "https://oauth2.googleapis.com/token",
+        "scope": "openid email profile"
+      }
     }
   }
 }
 ```
 
-Claude Desktop will discover auth requirements from the PRM endpoint
-and prompt you to sign in with your unfoldingWord Google account.
+Sign in with your `@unfoldingword.org` Google account when prompted.
 
 ### Legacy bearer (transition period)
 

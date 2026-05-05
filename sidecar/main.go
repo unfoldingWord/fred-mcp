@@ -47,11 +47,12 @@ func main() {
 	listenAddr := getEnv("LISTEN_ADDR", "127.0.0.1:5500")
 
 	// OAUTH_CLIENT_IDS: comma-separated list of accepted audiences.
-	// If empty, audience validation is skipped entirely — the email
-	// domain gate and Internal consent screen are the security boundary.
-	oauthClientIDs = parseClientIDs(os.Getenv("OAUTH_CLIENT_IDS"))
+	// Required — the sidecar refuses to start without at least one.
+	// MCP clients must use one of these client_ids when authenticating
+	// with Google, so the resulting token's aud matches our allow-list.
+	oauthClientIDs = parseClientIDs(requireEnv("OAUTH_CLIENT_IDS"))
 	if len(oauthClientIDs) == 0 {
-		log.Printf("OAUTH_CLIENT_IDS is empty; audience validation disabled (relying on domain gate)")
+		log.Fatalf("tokeninfo-sidecar: OAUTH_CLIENT_IDS is set but contains no valid IDs")
 	}
 
 	mux := http.NewServeMux()
@@ -140,9 +141,10 @@ func handleVerify(w http.ResponseWriter, r *http.Request) {
 
 	// Validate claims.
 
-	// Audience check: if we have an allow-list, enforce it.
-	// If empty, skip — rely on domain gate + Internal consent screen.
-	if len(oauthClientIDs) > 0 && !oauthClientIDs[info.Aud] {
+	// Audience check: the token must have been issued for one of our
+	// registered client_ids. This ensures tokens from unrelated Google
+	// services cannot be replayed to this resource server (MCP spec §4).
+	if !oauthClientIDs[info.Aud] {
 		log.Printf("tokeninfo: aud %q not in allowed set", info.Aud)
 		unauthorized(w)
 		return
