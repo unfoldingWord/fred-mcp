@@ -19,35 +19,11 @@ binding), so MCP clients must be configured with the server's OAuth
 client credentials. Get the client ID and secret from your team lead
 or 1Password.
 
-### Claude Code
+### Claude Desktop (primary OIDC path)
 
-```bash
-claude mcp add --transport http fred https://fred-mcp.fly.dev/mcp
-```
-
-Claude Code automatically handles OAuth for HTTP servers: it discovers
-the PRM endpoint, detects the 401 challenge, opens a browser for
-Google consent, and stores the token with automatic refresh.
-
-If the automatic OAuth flow doesn't complete (e.g., Google rejects the
-dynamic client registration), fall back to the legacy bearer token
-during the transition period, or use a manually-obtained token:
-
-```json
-{
-  "fred": {
-    "type": "http",
-    "url": "https://fred-mcp.fly.dev/mcp",
-    "headers": {
-      "Authorization": "Bearer ${FRED_MCP_TOKEN}"
-    }
-  }
-}
-```
-
-### Claude Desktop
-
-Add to `~/Library/Application Support/Claude/claude_desktop_config.json`:
+Add to `~/Library/Application Support/Claude/claude_desktop_config.json`,
+using the fred-mcp OAuth client credentials (get from 1Password or
+your team lead):
 
 ```json
 {
@@ -68,6 +44,37 @@ Add to `~/Library/Application Support/Claude/claude_desktop_config.json`:
 ```
 
 Sign in with your `@unfoldingword.org` Google account when prompted.
+Because the config uses our registered OAuth client, the token's
+audience matches `OAUTH_CLIENT_IDS` and the sidecar accepts it.
+
+### Claude Code
+
+Claude Code auto-handles OAuth for HTTP MCP servers, but uses its own
+Google client\_id — the resulting token's audience won't match
+`OAUTH_CLIENT_IDS` until we discover and add that client\_id.
+
+**To discover Claude Code's client\_id:**
+
+1. Run `claude mcp add --transport http fred https://fred-mcp.fly.dev/mcp`
+2. Try a tool call — it will trigger the OAuth flow and likely get a
+   401 from the sidecar.
+3. Check the sidecar logs: `fly logs -a fred-mcp | grep "aud.*not in allowed set"`
+4. Add the logged aud value to the Fly secret:
+   `fly secrets set OAUTH_CLIENT_IDS=<our-id>,<claude-code-id> -a fred-mcp`
+
+Until that's done, use the legacy bearer token in `.mcp.json`:
+
+```json
+{
+  "fred": {
+    "type": "http",
+    "url": "https://fred-mcp.fly.dev/mcp",
+    "headers": {
+      "Authorization": "Bearer ${FRED_MCP_TOKEN}"
+    }
+  }
+}
+```
 
 ### Legacy bearer (transition period)
 

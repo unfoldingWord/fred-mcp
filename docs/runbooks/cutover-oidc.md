@@ -29,16 +29,29 @@ curl -s https://fred-mcp.fly.dev/.well-known/oauth-protected-resource | jq .
 
 ## Phase 2: Migrate human consumers
 
+### Claude Desktop (migrate first)
+
+Claude Desktop is the primary OIDC path because the explicit OAuth
+config uses our client\_id, producing tokens that pass audience
+validation.
+
 ### Claude Code
 
-```bash
-claude mcp remove fred  # if previously configured with bearer
-claude mcp add --transport http fred https://fred-mcp.fly.dev/mcp
-```
+Claude Code uses its own Google client\_id for OAuth, so the token's
+audience won't be in `OAUTH_CLIENT_IDS` out of the box.
 
-On first tool call, Claude Code will attempt the automatic OAuth flow
-(PRM discovery → Google consent → token caching). If the automatic
-flow doesn't complete, configure with explicit headers in `.mcp.json`:
+1. Run `claude mcp add --transport http fred https://fred-mcp.fly.dev/mcp`
+2. Try a tool call — expect a 401 from the sidecar.
+3. Check logs: `fly logs -a fred-mcp | grep "aud.*not in allowed set"`
+4. Add the logged aud to the Fly secret:
+   ```bash
+   fly secrets set OAUTH_CLIENT_IDS=<our-id>,<claude-code-id> -a fred-mcp
+   ```
+5. Retry — should now succeed.
+
+If Claude Code's auto-OAuth doesn't complete at all (Google rejects
+DCR), use the legacy bearer in `.mcp.json` until a workaround is
+available:
 
 ```json
 {
