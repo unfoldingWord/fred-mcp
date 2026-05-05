@@ -21,16 +21,29 @@ or 1Password.
 
 ### Claude Code
 
-```bash
-claude mcp add --transport http \
-  --header "Authorization: Bearer $(gcloud auth print-access-token \
-    --client-id-file=<path-to-client-secret.json>)" \
-  fred https://fred-mcp.fly.dev/mcp
+Add the server to your project's `.mcp.json`:
+
+```json
+{
+  "mcpServers": {
+    "fred": {
+      "type": "http",
+      "url": "https://fred-mcp.fly.dev/mcp",
+      "auth": {
+        "type": "oauth",
+        "client_id": "<OAUTH_CLIENT_ID>",
+        "client_secret": "<OAUTH_CLIENT_SECRET>",
+        "authorization_url": "https://accounts.google.com/o/oauth2/v2/auth",
+        "token_url": "https://oauth2.googleapis.com/token",
+        "scope": "openid email profile"
+      }
+    }
+  }
+}
 ```
 
-Or configure in `.claude/settings.json` with explicit OAuth parameters.
-Claude Code will handle the Google OAuth loopback flow using the
-provided client credentials.
+On first tool call, Claude Code opens a browser for the Google OAuth
+consent flow and caches the token locally.
 
 ### Claude Desktop
 
