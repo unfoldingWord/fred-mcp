@@ -19,7 +19,7 @@ func setupSidecar(t *testing.T, handler http.HandlerFunc) *httptest.Server {
 	t.Cleanup(ts.Close)
 
 	// Configure sidecar globals.
-	oauthClientID = "test-client-id.apps.googleusercontent.com"
+	oauthClientIDs = map[string]bool{"test-client-id.apps.googleusercontent.com": true}
 	allowedHD = "unfoldingword.org"
 	toolboxURL = "https://fred-mcp.fly.dev"
 	tokeninfoURL = ts.URL
@@ -108,7 +108,34 @@ func TestVerify_WrongAud(t *testing.T) {
 	}
 }
 
-func TestVerify_WrongHD(t *testing.T) {
+func TestVerify_AudSkippedWhenNoAllowList(t *testing.T) {
+	setupSidecar(t, func(w http.ResponseWriter, r *http.Request) {
+		// Return a token with a different aud — should pass when allow-list is empty.
+		resp, _ := json.Marshal(map[string]string{
+			"aud":            "some-other-client.apps.googleusercontent.com",
+			"sub":            "1234567890",
+			"email":          "user@unfoldingword.org",
+			"email_verified": "true",
+			"hd":             "unfoldingword.org",
+			"expires_in":     "3600",
+		})
+		w.Write(resp)
+	})
+
+	// Clear the allow-list — audience validation should be skipped.
+	oauthClientIDs = map[string]bool{}
+
+	req := httptest.NewRequest("GET", "/verify", nil)
+	req.Header.Set("Authorization", "Bearer ya29.any-client-token")
+	w := httptest.NewRecorder()
+	handleVerify(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200 (aud skipped), got %d", w.Code)
+	}
+}
+
+func TestVerify_WrongEmailDomain(t *testing.T) {
 	setupSidecar(t, func(w http.ResponseWriter, r *http.Request) {
 		resp, _ := json.Marshal(map[string]string{
 			"aud":            "test-client-id.apps.googleusercontent.com",
@@ -217,6 +244,31 @@ func TestVerify_ValidToken(t *testing.T) {
 	}
 }
 
+func TestVerify_ValidToken_NoHdClaim(t *testing.T) {
+	// Google may omit `hd` from access token tokeninfo responses.
+	// The domain gate uses email suffix, so this should still pass.
+	setupSidecar(t, func(w http.ResponseWriter, r *http.Request) {
+		resp, _ := json.Marshal(map[string]string{
+			"aud":            "test-client-id.apps.googleusercontent.com",
+			"sub":            "1234567890",
+			"email":          "user@unfoldingword.org",
+			"email_verified": "true",
+			"expires_in":     "3600",
+			// Note: no "hd" field
+		})
+		w.Write(resp)
+	})
+
+	req := httptest.NewRequest("GET", "/verify", nil)
+	req.Header.Set("Authorization", "Bearer ya29.no-hd-token")
+	w := httptest.NewRecorder()
+	handleVerify(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200 (hd not required), got %d", w.Code)
+	}
+}
+
 func TestVerify_CacheHit(t *testing.T) {
 	var callCount atomic.Int32
 
@@ -322,5 +374,23 @@ func TestPRM_ReturnsValidJSON(t *testing.T) {
 	servers, ok := prm["authorization_servers"].([]interface{})
 	if !ok || len(servers) == 0 || servers[0] != "https://accounts.google.com" {
 		t.Fatalf("unexpected authorization_servers: %v", prm["authorization_servers"])
+	}
+}
+
+func TestEmailDomainOf(t *testing.T) {
+	tests := []struct {
+		email string
+		want  string
+	}{
+		{"user@unfoldingword.org", "unfoldingword.org"},
+		{"user@Gmail.Com", "gmail.com"},
+		{"nodomain", ""},
+		{"", ""},
+	}
+	for _, tt := range tests {
+		got := emailDomainOf(tt.email)
+		if got != tt.want {
+			t.Errorf("emailDomainOf(%q) = %q, want %q", tt.email, got, tt.want)
+		}
 	}
 }

@@ -70,7 +70,7 @@ jobs:
             -e MYSQL_PASSWORD=ci-password \
             -e FRED_MCP_TOKEN=ci-test-token \
             -e FRED_MCP_TOKEN_FRED_ZULIP_BOT_WORKER=ci-test-worker-token \
-            -e OAUTH_CLIENT_ID=ci-fake-client-id.apps.googleusercontent.com \
+            -e OAUTH_CLIENT_IDS=ci-fake-client-id.apps.googleusercontent.com \
             -e TOOLBOX_URL=https://fred-mcp.fly.dev \
             fred-mcp:ci
 

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -27,18 +28,31 @@ var (
 )
 
 var (
-	oauthClientID string
-	allowedHD     string
-	toolboxURL    string
-	tokeninfoURL  string
+	// oauthClientIDs is the set of acceptable audience values.
+	// If empty, audience validation is skipped (rely on domain gate +
+	// Internal consent screen). Comma-separated in the env var.
+	oauthClientIDs map[string]bool
+	allowedHD      string
+	toolboxURL     string
+	tokeninfoURL   string
 )
 
+// httpClient is used for tokeninfo requests with a bounded timeout.
+var httpClient = &http.Client{Timeout: 5 * time.Second}
+
 func main() {
-	oauthClientID = requireEnv("OAUTH_CLIENT_ID")
 	toolboxURL = requireEnv("TOOLBOX_URL")
 	allowedHD = getEnv("ALLOWED_HD", "unfoldingword.org")
 	tokeninfoURL = getEnv("TOKENINFO_URL", "https://oauth2.googleapis.com/tokeninfo")
 	listenAddr := getEnv("LISTEN_ADDR", "127.0.0.1:5500")
+
+	// OAUTH_CLIENT_IDS: comma-separated list of accepted audiences.
+	// If empty, audience validation is skipped entirely — the email
+	// domain gate and Internal consent screen are the security boundary.
+	oauthClientIDs = parseClientIDs(os.Getenv("OAUTH_CLIENT_IDS"))
+	if len(oauthClientIDs) == 0 {
+		log.Printf("OAUTH_CLIENT_IDS is empty; audience validation disabled (relying on domain gate)")
+	}
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("/verify", handleVerify)
@@ -77,8 +91,20 @@ func handleVerify(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Cache miss or expired — call Google tokeninfo.
-	resp, err := http.PostForm(tokeninfoURL, url.Values{"access_token": {token}})
+	// Cache miss or expired — call Google tokeninfo with bounded timeout.
+	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
+	defer cancel()
+
+	form := url.Values{"access_token": {token}}
+	req, err := http.NewRequestWithContext(ctx, "POST", tokeninfoURL, strings.NewReader(form.Encode()))
+	if err != nil {
+		log.Printf("tokeninfo request build failed: %v", err)
+		unauthorized(w)
+		return
+	}
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+
+	resp, err := httpClient.Do(req)
 	if err != nil {
 		log.Printf("tokeninfo request failed: %v", err)
 		unauthorized(w)
@@ -113,16 +139,25 @@ func handleVerify(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Validate claims.
-	if info.Aud != oauthClientID {
-		log.Printf("tokeninfo: aud mismatch: got %q, want %q", info.Aud, oauthClientID)
+
+	// Audience check: if we have an allow-list, enforce it.
+	// If empty, skip — rely on domain gate + Internal consent screen.
+	if len(oauthClientIDs) > 0 && !oauthClientIDs[info.Aud] {
+		log.Printf("tokeninfo: aud %q not in allowed set", info.Aud)
 		unauthorized(w)
 		return
 	}
-	if info.HD != allowedHD {
-		log.Printf("tokeninfo: hd mismatch: got %q, want %q", info.HD, allowedHD)
+
+	// Domain gate: check email suffix. This is always present in
+	// tokeninfo when the token has the email scope, unlike the hd
+	// claim which is not guaranteed for access token introspection.
+	emailDomain := emailDomainOf(info.Email)
+	if emailDomain != allowedHD {
+		log.Printf("tokeninfo: email domain %q != allowed %q (email: %s)", emailDomain, allowedHD, info.Email)
 		unauthorized(w)
 		return
 	}
+
 	if info.EmailVerified != "true" {
 		log.Printf("tokeninfo: email_verified is %q for %s", info.EmailVerified, info.Email)
 		unauthorized(w)
@@ -159,9 +194,9 @@ func handleVerify(w http.ResponseWriter, r *http.Request) {
 func handlePRM(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]interface{}{
-		"resource":                toolboxURL,
-		"authorization_servers":   []string{"https://accounts.google.com"},
-		"scopes_supported":        []string{"openid", "email", "profile"},
+		"resource":                 toolboxURL,
+		"authorization_servers":    []string{"https://accounts.google.com"},
+		"scopes_supported":         []string{"openid", "email", "profile"},
 		"bearer_methods_supported": []string{"header"},
 	})
 }
@@ -192,4 +227,26 @@ func getEnv(key, fallback string) string {
 		return v
 	}
 	return fallback
+}
+
+// parseClientIDs splits a comma-separated string into a set.
+// Returns an empty map if the input is empty.
+func parseClientIDs(raw string) map[string]bool {
+	ids := make(map[string]bool)
+	for _, id := range strings.Split(raw, ",") {
+		id = strings.TrimSpace(id)
+		if id != "" {
+			ids[id] = true
+		}
+	}
+	return ids
+}
+
+// emailDomainOf extracts the domain part of an email address.
+func emailDomainOf(email string) string {
+	_, domain, ok := strings.Cut(email, "@")
+	if !ok {
+		return ""
+	}
+	return strings.ToLower(domain)
 }
