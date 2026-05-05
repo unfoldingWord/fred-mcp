@@ -29,6 +29,11 @@ kind: tool
 name: execute_sql
 type: mysql-execute-sql
 source: fred
+annotations:
+  readOnlyHint: true
+  destructiveHint: false
+  idempotentHint: true
+  openWorldHint: false
 description: |
   Execute a single read-only SQL statement against the Fred MariaDB
   database and return the rows as JSON. Use this when the curated
@@ -79,6 +84,11 @@ kind: tool
 name: find_language_engagements
 type: mysql-sql
 source: fred
+annotations:
+  readOnlyHint: true
+  destructiveHint: false
+  idempotentHint: true
+  openWorldHint: false
 description: |
   Find unfoldingWord language engagements matching a language and/or
   country. Returns engagement details joined with organization name,
@@ -142,6 +152,11 @@ kind: tool
 name: list_translation_products_for_engagement
 type: mysql-sql
 source: fred
+annotations:
+  readOnlyHint: true
+  destructiveHint: false
+  idempotentHint: true
+  openWorldHint: false
 description: |
   List all translation products (scripture portions, NT, full Bible,
   etc.) for a given language engagement, with status and dates.
@@ -180,6 +195,11 @@ kind: tool
 name: search_organizations
 type: mysql-sql
 source: fred
+annotations:
+  readOnlyHint: true
+  destructiveHint: false
+  idempotentHint: true
+  openWorldHint: false
 description: |
   Search unfoldingWord partner organizations by a name fragment.
   Returns org metadata including type, sensitivity, and Progress
@@ -210,6 +230,11 @@ kind: tool
 name: country_language_overview
 type: mysql-sql
 source: fred
+annotations:
+  readOnlyHint: true
+  destructiveHint: false
+  idempotentHint: true
+  openWorldHint: false
 description: |
   Return all languages spoken in a country (Progress Bible's view,
   not just languages unfoldingWord is engaged with) with translation
@@ -256,6 +281,11 @@ kind: tool
 name: engagement_metadata_notes
 type: mysql-sql
 source: fred
+annotations:
+  readOnlyHint: true
+  destructiveHint: false
+  idempotentHint: true
+  openWorldHint: false
 description: |
   Return all free-text notes / communication log entries attached to
   a language engagement, most recent first. Useful for answering
@@ -281,6 +311,11 @@ kind: tool
 name: recent_training_events
 type: mysql-sql
 source: fred
+annotations:
+  readOnlyHint: true
+  destructiveHint: false
+  idempotentHint: true
+  openWorldHint: false
 description: |
   List recent unfoldingWord training events, optionally filtered by
   country. Includes participant counts and the generated
