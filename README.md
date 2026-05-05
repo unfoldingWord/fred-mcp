@@ -11,9 +11,41 @@ See [`docs/architecture.md`](./docs/architecture.md) for the design and
 [`docs/decisions/0001-toolbox-as-mcp-server.md`](./docs/decisions/0001-toolbox-as-mcp-server.md)
 for the why.
 
-## Connecting from Claude Desktop
+## Connecting as a human consumer (OIDC)
+
+Human consumers authenticate via Google Workspace OAuth. The server
+advertises its auth requirements via
+[Protected Resource Metadata](https://fred-mcp.fly.dev/.well-known/oauth-protected-resource).
+
+### Claude Code
+
+```bash
+claude mcp add --transport http fred https://fred-mcp.fly.dev/mcp
+```
+
+On first tool call, Claude Code discovers the PRM document, initiates
+Google OAuth via a local loopback, and caches the token.
+
+### Claude Desktop
 
 Add to `~/Library/Application Support/Claude/claude_desktop_config.json`:
+
+```json
+{
+  "mcpServers": {
+    "fred": {
+      "url": "https://fred-mcp.fly.dev/mcp"
+    }
+  }
+}
+```
+
+Claude Desktop will discover auth requirements from the PRM endpoint
+and prompt you to sign in with your unfoldingWord Google account.
+
+### Legacy bearer (transition period)
+
+During the transition, the legacy `FRED_MCP_TOKEN` bearer still works:
 
 ```json
 {
@@ -28,10 +60,7 @@ Add to `~/Library/Application Support/Claude/claude_desktop_config.json`:
 }
 ```
 
-(URL and token TBD until first deploy lands.) If your Claude version
-doesn't support the `headers` field on remote MCP servers, use
-[`mcp-remote`](https://www.npmjs.com/package/mcp-remote) as a stdio
-proxy that injects the header.
+This will be removed once all humans migrate to OIDC.
 
 ## Local development
 
@@ -51,6 +80,9 @@ MYSQL_DATABASE=uw-data-tracking-stage
 MYSQL_USER=fred_mcp_ro
 MYSQL_PASSWORD=...
 FRED_MCP_TOKEN=local-dev-token
+FRED_MCP_TOKEN_FRED_ZULIP_BOT_WORKER=local-dev-worker-token
+OAUTH_CLIENT_ID=your-client-id.apps.googleusercontent.com
+TOOLBOX_URL=http://localhost:8080
 ```
 
 Smoke test:
@@ -86,10 +118,13 @@ Pre-reqs (one-time, not in this repo):
      MYSQL_DATABASE=uw-data-tracking-stage \
      MYSQL_USER=fred_mcp_ro \
      MYSQL_PASSWORD=<from-DBA> \
-     FRED_MCP_TOKEN="$(openssl rand -base64 48 | tr '+/' '-_' | tr -d '=')"
+     FRED_MCP_TOKEN="$(openssl rand -base64 48 | tr '+/' '-_' | tr -d '=')" \
+     OAUTH_CLIENT_ID=<from-gcp-console> \
+     TOOLBOX_URL=https://fred-mcp.fly.dev
    ```
 
    Save `FRED_MCP_TOKEN` to 1Password — you'll hand it out per consumer.
+   See [`docs/runbooks/step-0-gcp-oauth-setup.md`](./docs/runbooks/step-0-gcp-oauth-setup.md) for `OAUTH_CLIENT_ID` setup.
 
 Then:
 
@@ -108,23 +143,29 @@ curl -i -H "Authorization: Bearer $TOKEN" https://fred-mcp.fly.dev/mcp # tool li
 
 ## Auth model
 
-Caddy is the trust boundary. Two kinds of bearer are accepted (see
-[ADR 0002](./docs/decisions/0002-auth-v2-split-by-consumer-type.md)):
+Caddy is the trust boundary. Three auth paths are supported (see
+[ADR 0002](./docs/decisions/0002-auth-v2-split-by-consumer-type.md) and
+[ADR 0003](./docs/decisions/0003-auth-v25-oidc-tokeninfo-sidecar.md)):
 
-- **Legacy shared `FRED_MCP_TOKEN`** — used by current human consumers
-  (Claude Desktop / Code / Cursor). Rotated by updating one Fly secret
-  and every consumer's MCP config. To be retired when OIDC for humans
-  lands (Auth v2.5, separate issue).
+- **Google OIDC (humans)** — MCP clients discover auth requirements via
+  the [Protected Resource Metadata](https://fred-mcp.fly.dev/.well-known/oauth-protected-resource)
+  endpoint, then authenticate with Google OAuth. A tokeninfo sidecar
+  validates the access token and stamps `X-Auth-Email` / `X-Auth-Sub`
+  headers for per-user attribution. Only unfoldingWord Workspace
+  accounts are accepted (`hd == unfoldingword.org`).
 - **Per-service named bearers `FRED_MCP_TOKEN_<SERVICE>`** — one Fly
   secret per service consumer (e.g. `FRED_MCP_TOKEN_FRED_ZULIP_BOT_WORKER`).
   Rotated independently per service. Logged with an `X-Service` header
   for request attribution.
+- **Legacy shared `FRED_MCP_TOKEN`** (transition period) — still
+  accepted for human consumers that haven't migrated to OIDC yet. Will
+  be removed once all humans are on OIDC.
 
 Adding a new service consumer is a small repeatable change — see
 [`docs/runbooks/onboard-service-consumer.md`](./docs/runbooks/onboard-service-consumer.md).
 
-Why two flavors instead of OIDC for humans now: toolbox v1.1.0's
-generic auth provider can't validate Google's opaque access tokens
-(no RFC 7662 support on Google's side, no JWKS-validatable token in
-the OAuth flow). Real OIDC needs a tokeninfo sidecar or a
-self-hosted authorization server — tracked separately.
+OIDC setup: see
+[`docs/runbooks/step-0-gcp-oauth-setup.md`](./docs/runbooks/step-0-gcp-oauth-setup.md)
+for initial GCP configuration and
+[`docs/runbooks/cutover-oidc.md`](./docs/runbooks/cutover-oidc.md)
+for the migration plan.

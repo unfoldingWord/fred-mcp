@@ -10,6 +10,8 @@ set -euo pipefail
 REQUIRED_VARS=(
     FRED_MCP_TOKEN
     FRED_MCP_TOKEN_FRED_ZULIP_BOT_WORKER
+    OAUTH_CLIENT_ID
+    TOOLBOX_URL
     MYSQL_HOST
     MYSQL_DATABASE
     MYSQL_USER
@@ -28,6 +30,11 @@ if (( ${#missing[@]} > 0 )); then
     exit 1
 fi
 
+# Tokeninfo sidecar — validates Google OAuth tokens for human consumers.
+# Bound to localhost; Caddy forward_auth's to it on :5500.
+/usr/local/bin/tokeninfo-sidecar &
+SIDECAR_PID=$!
+
 # Toolbox bound to localhost only — Caddy is the public face.
 # log-level DEBUG = highest verbosity supported by toolbox (no TRACE).
 /usr/local/bin/toolbox \
@@ -41,13 +48,13 @@ TOOLBOX_PID=$!
 caddy run --config /etc/caddy/Caddyfile --adapter caddyfile &
 CADDY_PID=$!
 
-# Forward signals so Fly can stop both processes cleanly.
-trap 'kill $TOOLBOX_PID $CADDY_PID 2>/dev/null; exit 0' TERM INT
+# Forward signals so Fly can stop all processes cleanly.
+trap 'kill $SIDECAR_PID $TOOLBOX_PID $CADDY_PID 2>/dev/null; exit 0' TERM INT
 
 # Exit when ANY child dies, so Fly restarts the container instead of
 # leaving Caddy serving /healthz while toolbox is dead.
 wait -n
 EXIT=$?
 echo "fred-mcp: a child process exited with status $EXIT; shutting down container" >&2
-kill -TERM $TOOLBOX_PID $CADDY_PID 2>/dev/null || true
+kill -TERM $SIDECAR_PID $TOOLBOX_PID $CADDY_PID 2>/dev/null || true
 exit $EXIT
