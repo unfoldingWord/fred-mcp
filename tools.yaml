@@ -42,6 +42,12 @@ description: |
   Important conventions for Fred (also see the `fred_query_rules`
   MCP prompt for the full ruleset):
   - The DB user is read-only. Only SELECT statements will succeed.
+  - Table names are plural and concrete — DO NOT guess. Common
+    tables: `countries`, `language_engagements`, `organizations`,
+    `uw_translation_products`, `language_engagement_metadata`,
+    `pb_language_data`, `joshua_project_data`, `training_events`,
+    `ietf_languages_codes`. Call `list_tables` for the full schema
+    before querying anything not in this list.
   - Strategic languages: `resource_level >= 1`.
   - Use `iso_639_2` to join `language_engagements` to
     `joshua_project_data` or `pb_language_data`.
