@@ -106,9 +106,22 @@ their redeploy.
 
 ## Removing a service consumer
 
-```sh
-fly secrets unset "FRED_MCP_TOKEN_${SERVICE}" -a fred-mcp
-```
+**Order matters.** `fly secrets unset` triggers an immediate redeploy.
+If the deployed image still has the var in `REQUIRED_VARS`, that
+redeploy lands in a guaranteed startup failure (the entrypoint guard
+fails fast). So: code change first, then secret removal.
 
-Then in code: remove the matcher block from `Caddyfile`, remove the
-var from `entrypoint.sh`'s `REQUIRED_VARS`, ship a PR.
+1. **Confirm the consumer is no longer using the token.** Coordinate
+   with the consumer maintainer; have them remove their use of it
+   first.
+2. **Ship a PR** that removes the matcher block from `Caddyfile` and
+   the var name from `entrypoint.sh`'s `REQUIRED_VARS`. Wait for it
+   to merge and CI to deploy.
+3. **Then** unset the Fly secret:
+
+   ```sh
+   fly secrets unset "FRED_MCP_TOKEN_${SERVICE}" -a fred-mcp
+   ```
+
+   The redeploy this triggers runs the new image, which no longer
+   requires the var, so the entrypoint guard passes.

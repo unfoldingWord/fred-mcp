@@ -62,6 +62,7 @@ jobs:
             -e MYSQL_USER=ci_user \
             -e MYSQL_PASSWORD=ci-password \
             -e FRED_MCP_TOKEN=ci-test-token \
+            -e FRED_MCP_TOKEN_FRED_ZULIP_BOT_WORKER=ci-test-worker-token \
             fred-mcp:ci
 
           # Toolbox parses tools.yaml at startup and logs "Server ready to
