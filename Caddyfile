@@ -11,13 +11,16 @@
     }
 }
 
-# Auth model (see ADR 0002 — interim "service-token split"):
-#   - /healthz: open, no auth.
-#   - Authorization matches the legacy shared FRED_MCP_TOKEN OR a
-#     per-service named bearer (FRED_MCP_TOKEN_<NAME>): proxy to
-#     toolbox. Per-service matchers also stamp X-Service so logs can
-#     attribute the request.
-#   - Otherwise: 401, no body.
+# Auth model (see ADR 0002 + ADR 0003):
+#   - /healthz: open, no auth (Fly health checks).
+#   - /.well-known/oauth-protected-resource: open, MCP Protected Resource
+#     Metadata for client discovery (proxied to tokeninfo sidecar).
+#   - Per-service named bearers (FRED_MCP_TOKEN_<NAME>): direct proxy to
+#     toolbox with X-Service header attribution.
+#   - Legacy shared FRED_MCP_TOKEN: direct proxy (transition period;
+#     remove once all humans migrate to OIDC).
+#   - Default: forward_auth to tokeninfo sidecar for Google OIDC
+#     validation, then proxy to toolbox on success.
 #
 # Adding a new service consumer:
 #   1. fly secrets set FRED_MCP_TOKEN_<NEW_SERVICE>=$(openssl rand -base64 32) -a fred-mcp
@@ -29,14 +32,17 @@
 # `Authorization "Bearer "` — any literal `Authorization: Bearer `
 # request would match. entrypoint.sh fails-fast at startup if any
 # expected token var is unset or empty.
-#
-# OIDC for human consumers is tracked in a follow-up issue (Auth v2.5);
-# the legacy shared FRED_MCP_TOKEN remains for human use until that lands.
 
 :8080 {
     # Health check passthrough — no auth required, returns 200.
     handle /healthz {
         respond "ok" 200
+    }
+
+    # MCP Protected Resource Metadata — open, proxied to sidecar.
+    # Clients use this for OAuth discovery per the MCP authorization spec.
+    handle /.well-known/oauth-protected-resource {
+        reverse_proxy 127.0.0.1:5500
     }
 
     # ─── Service consumers ──────────────────────────────────────────────
@@ -49,14 +55,22 @@
         }
     }
 
-    # ─── Legacy shared bearer (humans, until v2.5 OIDC lands) ──────────
+    # ─── Legacy shared bearer (humans, transition period) ──────────────
+    # Remove this block once all human consumers migrate to OIDC.
     @authorized header Authorization "Bearer {env.FRED_MCP_TOKEN}"
     handle @authorized {
         reverse_proxy 127.0.0.1:5000
     }
 
-    # Default: 401 with no body, no hint about what's behind us.
+    # ─── Default: OIDC via forward_auth to tokeninfo sidecar ───────────
+    # Caddy sends the request headers to the sidecar's /verify endpoint.
+    # On 2xx: copies X-Auth-* headers and proxies to toolbox.
+    # On 4xx: returns the sidecar's 401 + WWW-Authenticate to the client.
     handle {
-        respond 401
+        forward_auth 127.0.0.1:5500 {
+            uri /verify
+            copy_headers X-Auth-Email X-Auth-Sub X-Auth-Hd
+        }
+        reverse_proxy 127.0.0.1:5000
     }
 }
