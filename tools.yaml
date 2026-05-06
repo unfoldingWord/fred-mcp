@@ -83,12 +83,54 @@ description: |
 
 kind: tool
 name: list_tables
-type: mysql-list-tables
+type: mysql-sql
 source: fred
+annotations:
+  readOnlyHint: true
+  destructiveHint: false
+  idempotentHint: true
+  openWorldHint: false
 description: |
-  List all user tables in the Fred database with their columns,
-  constraints, indexes, and triggers as JSON. Use to discover the
-  schema before writing SQL.
+  List all user tables and views in the Fred database with their
+  columns, types, primary keys, and foreign key targets as JSON.
+  Use this as the DEFAULT schema-discovery tool before writing SQL
+  via `execute_sql`.
+
+  One row per column. Fields:
+    - table_name, table_type ('BASE TABLE' | 'VIEW')
+    - column_name, data_type, is_nullable
+    - column_key ('PRI' = primary key, 'UNI' = unique,
+      'MUL' = indexed/non-unique, '' = none)
+    - referenced_table_name, referenced_column_name
+      (FK target; NULL when the column is not a foreign key)
+
+  Indexes (other than PK/unique flags) and triggers are intentionally
+  omitted to keep the payload small. For query-plan / index analysis
+  use `get_query_plan`. For raw introspection beyond what's listed
+  here, use `execute_sql` against information_schema directly.
+statement: |
+  SELECT
+    c.table_name,
+    t.table_type,
+    c.column_name,
+    c.data_type,
+    c.is_nullable,
+    c.column_key,
+    k.referenced_table_name,
+    k.referenced_column_name
+  FROM information_schema.columns AS c
+  JOIN information_schema.tables  AS t
+    ON  t.table_schema = c.table_schema
+    AND t.table_name   = c.table_name
+  LEFT JOIN information_schema.key_column_usage AS k
+    ON  k.table_schema = c.table_schema
+    AND k.table_name   = c.table_name
+    AND k.column_name  = c.column_name
+    AND k.referenced_table_name IS NOT NULL
+  WHERE c.table_schema = DATABASE()
+    AND t.table_type IN ('BASE TABLE', 'VIEW')
+  ORDER BY c.table_name, c.ordinal_position;
+parameters: []
 
 ---
 
