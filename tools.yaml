@@ -440,7 +440,11 @@ messages:
         "Translation Not Started",
         "Goal Met - Scripture accessed via second language",
         "Not Shown".
-      - `onthelist` indicates ETEN funding eligibility.
+      - `onthelist` (boolean: "True"/"False") indicates ETEN
+        funding eligibility AND is the field to filter on when the
+        user asks what languages to focus on next in a given
+        country (i.e. languages still eligible for / not yet at
+        their AAG goal).
 
       # Joins
       - Joining `language_engagements` to `joshua_project_data` or
