@@ -51,6 +51,13 @@ description: |
     `joshua_project_data`, `training_events`, `ietf_languages_codes`.
     Call `list_tables` for the full schema before querying anything
     not in this list.
+  - Country names use ISO English short form: `countries.english_short_name`
+    and the same column in `master_uw_language_engagements` are values
+    like `Russian Federation`, `United States of America`,
+    `Korea, Republic of`. Filtering by common short names like
+    `Russia`, `USA`, `South Korea` with `=` will return 0 rows. Use
+    `LIKE '%Russia%'`, or filter by `alpha_2_code` / `alpha_3_code`
+    (e.g. `c.alpha_3_code = 'RUS'`).
   - Strategic languages: `resource_level >= 1`.
   - Use `iso_639_2` to join `language_engagements` to
     `joshua_project_data` or `pb_language_data`.
