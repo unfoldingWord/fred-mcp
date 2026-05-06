@@ -48,9 +48,13 @@ description: |
     Common tables: `countries`, `language_engagements`,
     `organizations`, `uw_translation_products`,
     `language_engagement_metadata`, `pb_language_data`,
-    `joshua_project_data`, `training_events`, `ietf_languages_codes`.
-    Call `list_tables` for the full schema before querying anything
-    not in this list.
+    `joshua_project_data`, `training_events`, `ietf_languages_codes`,
+    `pb_all_translation_projects` (wide denormalized view, best for
+    questions about organizations/projects globally — search
+    `Organization_Name`), `master_uw_language_engagements` and
+    `master_uw_translation_projects` (pre-joined convenience views
+    over uW engagements/products). Call `list_tables` for the full
+    schema before querying anything not in this list.
   - Country names use ISO English short form: `countries.english_short_name`
     and the same column in `master_uw_language_engagements` are values
     like `Russian Federation`, `United States of America`,
@@ -220,6 +224,12 @@ description: |
   Search unfoldingWord partner organizations by a name fragment.
   Returns org metadata including type, sensitivity, and Progress
   Bible org id linkage.
+
+  This searches the curated `organizations` table (uW partners
+  only). For broader "which organizations are working on language
+  X / in country Y" questions across all Progress Bible-tracked
+  projects, use `execute_sql` against `pb_all_translation_projects`
+  filtering on `Organization_Name`.
 statement: |
   SELECT
     org_id,
@@ -486,3 +496,18 @@ messages:
       `pb_language_data.languagename` column has format
       `language [code]`. Same convention applies to
       `pb_all_translation_projects.Language_Name`.
+
+      # Organizations
+      - To get a language engagement's organization, join
+        `language_engagements.translation_organization_id` to
+        `organizations.org_id`. Do NOT query
+        `language_engagements_organizations` — it is a legacy
+        cross-reference table and should not be used.
+      - For broad "which organizations are involved with X?"
+        questions (across all of Progress Bible's tracked projects,
+        not just uW engagements), query
+        `pb_all_translation_projects` and filter on
+        `Organization_Name`. That table is also where you find
+        per-project fields like `Project_Name`, `Translation_Type`,
+        `Translation_Goals`, `Engagement_Status`, and
+        `Engagement_Function`.
