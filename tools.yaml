@@ -62,6 +62,13 @@ description: |
     `Russia`, `USA`, `South Korea` with `=` will return 0 rows. Use
     `LIKE '%Russia%'`, or filter by `alpha_2_code` / `alpha_3_code`
     (e.g. `c.alpha_3_code = 'RUS'`).
+  - The `countries` table's PK is `alpha_3_code`, NOT `country_id`.
+    Other tables have FK columns literally named `country_id`
+    (e.g. `language_engagements.country_id`,
+    `training_events.country_id`) that reference
+    `countries.alpha_3_code`. Join with
+    `... ON x.country_id = c.alpha_3_code` — never `country_id =
+    country_id`.
   - Strategic languages: `resource_level >= 1`.
   - Use `iso_639_2` to join `language_engagements` to
     `joshua_project_data` or `pb_language_data`.
