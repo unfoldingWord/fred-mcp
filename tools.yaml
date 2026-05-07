@@ -83,12 +83,84 @@ description: |
 
 kind: tool
 name: list_tables
-type: mysql-list-tables
+type: mysql-sql
 source: fred
+annotations:
+  readOnlyHint: true
+  destructiveHint: false
+  idempotentHint: true
+  openWorldHint: false
 description: |
-  List all user tables in the Fred database with their columns,
-  constraints, indexes, and triggers as JSON. Use to discover the
-  schema before writing SQL.
+  List all user tables and views in the Fred database with each
+  table's columns aggregated into a single compact descriptor
+  string. Use this as the DEFAULT schema-discovery tool before
+  writing SQL via `execute_sql`.
+
+  One row per table/view. Fields:
+    - t:    table or view name
+    - k:    'T' for a table (BASE TABLE or MariaDB-system-versioned),
+            'V' for VIEW
+    - cols: comma-separated column descriptors, in declared order.
+            Each descriptor is
+
+              name:column_type[!][:PK|:UQ][>ref_table.ref_column]
+
+            where:
+              !            = NOT NULL
+              :PK / :UQ    = primary key / unique
+              >table.col   = foreign key target (omitted for non-FKs)
+
+            Examples:
+              alpha_3_code:varchar(3)!:PK
+              country_id:varchar(3)!>countries.alpha_3_code
+              notes:text
+
+  Indexes (other than PK/unique flags) and triggers are intentionally
+  omitted to keep the payload small. For query-plan / index analysis
+  use `get_query_plan`. For raw introspection beyond what's listed,
+  use `execute_sql` against information_schema directly.
+statement: |
+  SET STATEMENT group_concat_max_len = 1000000
+  FOR
+  WITH fk AS (
+    SELECT
+      table_schema,
+      table_name,
+      column_name,
+      MIN(CONCAT('>', referenced_table_name, '.', referenced_column_name)) AS ref
+    FROM information_schema.key_column_usage
+    WHERE table_schema = DATABASE()
+      AND referenced_table_name IS NOT NULL
+    GROUP BY table_schema, table_name, column_name
+  )
+  SELECT
+    c.table_name AS t,
+    MAX(CASE tt.table_type WHEN 'VIEW' THEN 'V' ELSE 'T' END) AS k,
+    GROUP_CONCAT(
+      CONCAT(
+        c.column_name, ':', c.column_type,
+        CASE c.is_nullable WHEN 'NO' THEN '!' ELSE '' END,
+        CASE c.column_key  WHEN 'PRI' THEN ':PK'
+                           WHEN 'UNI' THEN ':UQ'
+                           ELSE '' END,
+        COALESCE(fk.ref, '')
+      )
+      ORDER BY c.ordinal_position
+      SEPARATOR ','
+    ) AS cols
+  FROM information_schema.columns AS c
+  JOIN information_schema.tables  AS tt
+    ON  tt.table_schema = c.table_schema
+    AND tt.table_name   = c.table_name
+  LEFT JOIN fk
+    ON  fk.table_schema = c.table_schema
+    AND fk.table_name   = c.table_name
+    AND fk.column_name  = c.column_name
+  WHERE c.table_schema = DATABASE()
+    AND tt.table_type IN ('BASE TABLE', 'VIEW', 'SYSTEM VERSIONED')
+  GROUP BY c.table_name
+  ORDER BY c.table_name;
+parameters: []
 
 ---
 
